@@ -1,3 +1,4 @@
+@tool
 extends Node
 class_name ScreenshotTool
 
@@ -15,25 +16,40 @@ class_name ScreenshotTool
 @export_range(0.0, 1.0) var screenshot_lossy_quality: float = 0.75
 ## Whether the screenshot tool should run outside the editor.
 @export var run_in_export: bool = false
+## Press to take a screenshot of the 2D editor viewport.
+@export_tool_button("Screenshot Editor 2D") var take_screenshot_editor_2d_button: Callable = _take_editor_2d_screenshot
+## Press to take a screenshot of the 3D editor viewport.
+@export_tool_button("Screenshot Editor 3D") var take_screenshot_editor_3d_button: Callable = _take_editor_3d_screenshot
 
 func _input(event: InputEvent) -> void:
+	if Engine.is_editor_hint():
+		return
 	if !run_in_export and !OS.has_feature("editor"):
 		return
 	
 	if event is InputEventKey:
 		if event.pressed and event.as_text() == screenshot_key:
-			take_screenshot()
+			take_screenshot(get_viewport())
 
-func take_screenshot() -> void:
-	var original_window_size: Vector2i = get_window().size
+func take_screenshot(viewport: Viewport) -> void:
+	var viewport_parent: Node = viewport.get_parent()
+	var original_viewport_stretch: bool = false
+	if viewport_parent is SubViewportContainer:
+		original_viewport_stretch = viewport_parent.stretch
+		viewport_parent.stretch = false
+	
+	var original_viewport_size: Vector2i = viewport.size
 	if screenshot_resize:
-		get_window().size = screenshot_resize_resolution
+		viewport.size = screenshot_resize_resolution
 	
 	await RenderingServer.frame_post_draw
-	var screenshot: Image = get_viewport().get_texture().get_image()
+	var screenshot: Image = viewport.get_texture().get_image()
 	var screenshot_datetime: Dictionary = Time.get_datetime_dict_from_system()
 	
-	get_window().size = original_window_size
+	viewport.size = original_viewport_size
+	
+	if viewport_parent is SubViewportContainer:
+		viewport_parent.stretch = original_viewport_stretch
 	
 	var screenshot_path: String = screenshot_path_template.format(screenshot_datetime)
 	
@@ -44,3 +60,15 @@ func take_screenshot() -> void:
 		"dds": screenshot.save_dds(screenshot_path)
 		"exr": screenshot.save_exr(screenshot_path)
 		_: push_error("Invalid extension for screenshot."); return
+
+func _take_editor_2d_screenshot() -> void:
+	if !Engine.is_editor_hint():
+		return
+	
+	take_screenshot(Engine.get_singleton(&"EditorInterface").get_editor_viewport_2d())
+
+func _take_editor_3d_screenshot() -> void:
+	if !Engine.is_editor_hint():
+		return
+	
+	take_screenshot(Engine.get_singleton(&"EditorInterface").get_editor_viewport_3d())
